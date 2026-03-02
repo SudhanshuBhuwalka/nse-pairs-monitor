@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#08090f">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>NSE Pairs Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+<style>
+:root{--bg:#08090f;--s1:rgba(255,255,255,0.015);--s2:rgba(255,255,255,0.03);--b1:rgba(255,255,255,0.04);--accent:#d97706;--ad:rgba(217,119,6,0.12);--al:rgba(217,119,6,0.3);--t:#d6d3d1;--td:#57534e;--tm:#78716c;--tb:#fafaf9;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',-apple-system,sans-serif;--serif:'Instrument Serif',serif}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--t);font-family:var(--sans);min-height:100dvh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+.app{max-width:480px;margin:0 auto;padding-bottom:env(safe-area-inset-bottom)}
+::-webkit-scrollbar{width:2px}::-webkit-scrollbar-thumb{background:rgba(217,119,6,0.2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes toastIn{from{opacity:0;transform:translateY(-100%)}to{opacity:1;transform:translateY(0)}}
+@keyframes bellRing{0%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-12deg)}45%{transform:rotate(6deg)}60%{transform:rotate(0)}}
+.tap{cursor:pointer;user-select:none}.tap:active{opacity:0.8;transform:scale(0.97)}
+.row-tap{transition:background 0.1s;cursor:pointer}.row-tap:active{background:rgba(217,119,6,0.08)!important}
+.toast{background:rgba(14,16,22,0.97);backdrop-filter:blur(12px);border-radius:12px;padding:12px 14px;margin-bottom:6px;cursor:pointer;animation:toastIn 0.35s cubic-bezier(0.16,1,0.3,1) both;box-shadow:0 8px 32px rgba(0,0,0,0.5)}
+.toast.exit{transform:translateY(-100%);opacity:0;transition:all 0.35s ease}
+input[type=range]{-webkit-appearance:none;width:100%;height:24px;background:transparent}
+input[type=range]::-webkit-slider-track{height:3px;background:rgba(217,119,6,0.12);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--accent);margin-top:-8px;border:3px solid var(--bg)}
+.chip{flex-shrink:0;padding:5px 12px;border-radius:14px;font-family:var(--mono);font-size:10px;font-weight:500;border:1px solid var(--b1);background:var(--s1);color:var(--tm)}
+.chip.on{background:var(--ad);border-color:var(--al);color:var(--accent)}
+.card{background:var(--s1);border:1px solid var(--s2);border-radius:8px;padding:10px 12px}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<script>
+// âââ SERVICE WORKER ââââââââââââââââââââââââââââââââââââââââââââââââââ
+if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;});
+function doInstall(){if(deferredInstall){deferredInstall.prompt();deferredInstall=null}}
+function reqNotif(){if('Notification' in window&&Notification.permission==='default')Notification.requestPermission()}
+function notify(title,body){if('Notification' in window&&Notification.permission==='granted')new Notification(title,{body,icon:'./icon-192.png',vibrate:[100,50,100]})}
+function vib(n){if(navigator.vibrate)navigator.vibrate(n||15)}
+
+// âââ DATA ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+const NSE=[
+{t:âHDFCBANKâ,s:âBanksâ,d:10,p:1680},{t:âICICIBANKâ,s:âBanksâ,d:11,p:1250},
+{t:âKOTAKBANKâ,s:âBanksâ,d:12,p:1780},{t:âAXISBANKâ,s:âBanksâ,d:13,p:1150},
+{t:âSBINâ,s:âBanksâ,d:14,p:820},{t:âINDUSINDBKâ,s:âBanksâ,d:15,p:1420},
+{t:âTCSâ,s:âITâ,d:20,p:3950},{t:âINFYâ,s:âITâ,d:21,p:1580},
+{t:âWIPROâ,s:âITâ,d:22,p:480},{t:âHCLTECHâ,s:âITâ,d:23,p:1720},
+{t:âTECHMâ,s:âITâ,d:24,p:1650},{t:âLTIMâ,s:âITâ,d:25,p:5800},
+{t:âRELIANCEâ,s:âEnergyâ,d:30,p:2950},{t:âONGCâ,s:âEnergyâ,d:31,p:270},
+{t:âBPCLâ,s:âEnergyâ,d:32,p:620},{t:âHINDPETROâ,s:âEnergyâ,d:33,p:560},
+{t:âTATASTEELâ,s:âMetalsâ,d:40,p:155},{t:âJSWSTEELâ,s:âMetalsâ,d:41,p:920},
+{t:âHINDALCOâ,s:âMetalsâ,d:42,p:640},{t:âVEDLâ,s:âMetalsâ,d:43,p:440},
+{t:âMARUTIâ,s:âAutoâ,d:50,p:12400},{t:âM&Mâ,s:âAutoâ,d:51,p:2950},
+{t:âTATAMOTORSâ,s:âAutoâ,d:52,p:780},{t:âBAJAJ-AUTOâ,s:âAutoâ,d:53,p:9200},
+{t:âSUNPHARMAâ,s:âPharmaâ,d:60,p:1820},{t:âDRREDDYâ,s:âPharmaâ,d:61,p:6400},
+{t:âCIPLAâ,s:âPharmaâ,d:62,p:1480},{t:âDIVISLABâ,s:âPharmaâ,d:63,p:4200},
+{t:âHINDUNILVRâ,s:âFMCGâ,d:70,p:2350},{t:âITCâ,s:âFMCGâ,d:71,p:460},
+{t:âNESTLEINDâ,s:âFMCGâ,d:72,p:2500},{t:âBRITANNIAâ,s:âFMCGâ,d:73,p:5600},
+{t:âULTRACEMCOâ,s:âCementâ,d:80,p:11200},{t:âSHREECEMâ,s:âCementâ,d:81,p:27000},
+{t:âAMBUJACEMâ,s:âCementâ,d:82,p:620},{t:âACCâ,s:âCementâ,d:83,p:2500},
+{t:âBAJFINANCEâ,s:âNBFCâ,d:90,p:7200},{t:âBAJAJFINSVâ,s:âNBFCâ,d:91,p:1680},
+{t:âHDFCLIFEâ,s:âInsuranceâ,d:92,p:680},{t:âSBILIFEâ,s:âInsuranceâ,d:93,p:1580}];
+
+const DAYS=252;
+const SC={Banks:â#f59e0bâ,IT:â#22d3eeâ,Energy:â#f472b6â,Metals:â#a78bfaâ,Auto:â#34d399â,Pharma:â#fb923câ,FMCG:â#60a5faâ,Cement:â#e879f9â,NBFC:â#fbbf24â,Insurance:â#2dd4bfâ};
+const SECTOR_SEEDS={Banks:1,IT:2,Energy:3,Metals:4,Auto:5,Pharma:6,FMCG:7,Cement:8,NBFC:9,Insurance:10};
+
+function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+
+// KEY FIX: Pre-generate shared sector factors so same-sector stocks correlate
+const sectorFactors={};
+Object.entries(SECTOR_SEEDS).forEach(([name,seed])=>{
+const r=rng(seed*9973);
+sectorFactors[name]=Array.from({length:DAYS},()=>{
+const u=r(),v=r();
+return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+});
+});
+
+const pc={};
+function genP(st){
+if(pc[st.t])return pc[st.t];
+const r=rng(st.d*137+7);
+const rn=()=>{const u=r(),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+const sf=sectorFactors[st.s]; // SHARED sector factor
+const P=[st.p];
+const sw=0.62; // high sector weight = high intra-sector correlation
+for(let i=1;i<DAYS;i++){
+const c=sw*sf[i]+(1-sw)*rn();
+// Regime shifts for some stocks to create z-score deviations
+const sh=(st.d%3===0&&i>80&&i<110)?0.005:
+(st.d%4===0&&i>150&&i<175)?-0.006:
+(st.d%5===0&&i>200&&i<225)?0.007:0;
+P.push(P[i-1]*Math.exp(0.0003+0.019*c+sh));
+}
+pc[st.t]=P;return P;
+}
+
+function rCorr(a,b,w){
+const rA=a.slice(1).map((v,i)=>Math.log(v/a[i]));
+const rB=b.slice(1).map((v,i)=>Math.log(v/b[i]));
+const o=new Array(a.length).fill(null);
+for(let i=w;i<rA.length;i++){
+const wA=rA.slice(i-w,i),wB=rB.slice(i-w,i);
+const mA=wA.reduce((s,v)=>s+v,0)/w,mB=wB.reduce((s,v)=>s+v,0)/w;
+let cv=0,vA=0,vB=0;
+for(let j=0;j<w;j++){const da=wA[j]-mA,db=wB[j]-mB;cv+=da*db;vA+=da*da;vB+=db*db}
+vA=Math.sqrt(vA/w);vB=Math.sqrt(vB/w);
+o[i+1]=vA*vB===0?0:cv/(w*vA*vB);
+}
+return o;
+}
+
+function discover(cw,mc){
+const stks=NSE.map(s=>({â¦s,prices:genP(s)}));
+const pairs=[];
+for(let i=0;i<stks.length;i++){
+for(let j=i+1;j<stks.length;j++){
+const co=rCorr(stks[i].prices,stks[j].prices,cw);
+const v=co.filter(c=>c!==null);
+if(!v.length)continue;
+const cur=v[v.length-1];
+const ok=Math.abs(cur)>=mc;
+const rec=v.slice(-20).some(c=>Math.abs(c)>=mc);
+if(!ok&&!rec)continue;
+const ls=stks[i].prices.map((a,k)=>Math.log(a)-Math.log(stks[j].prices[k]));
+const zs=ls.map((x,k)=>{if(k<cw)return null;const w=ls.slice(k-cw,k),m=w.reduce((s,x)=>s+x,0)/w.length,sd=Math.sqrt(w.reduce((s,x)=>s+(x-m)**2,0)/w.length);return sd===0?0:(x-m)/sd});
+const vz=zs.filter(z=>z!==null);
+const cZ=vz.length?vz[vz.length-1]:0;
+const pZ=vz.length>=2?vz[vz.length-2]:cZ;
+let sY=0,sX=0,sXY=0,sX2=0,n=0;
+for(let k=cw+1;k<ls.length;k++){const y=ls[k]-ls[k-1],x=ls[k-1];sY+=y;sX+=x;sXY+=x*y;sX2+=x*x;n++}
+const beta=(n*sXY-sX*sY)/(n*sX2-sX*sX);
+const hl=beta<0?-Math.log(2)/beta:null;
+pairs.push({sA:stks[i],sB:stks[j],name:`${stks[i].t} / ${stks[j].t}`,
+sec:stks[i].s===stks[j].s?stks[i].s:`${stks[i].s}Ã${stks[j].s}`,
+cross:stks[i].s!==stks[j].s,corr:cur,
+z:cZ,pz:pZ,hl,sig:ok,em:!ok&&rec,
+zs,ls,rcs:co,pA:stks[i].prices,pB:stks[j].prices});
+}
+}
+pairs.sort((a,b)=>Math.abs(b.z)-Math.abs(a.z));
+return pairs;
+}
+
+function tDates(n){const d=[];let dt=new Date(â2025-03-03â);while(d.length<n){if(dt.getDay()!==0&&dt.getDay()!==6)d.push(dt.toLocaleDateString(âen-INâ,{day:â2-digitâ,month:âshortâ}));dt=new Date(dt);dt.setDate(dt.getDate()+1)}return d}
+const DATES=tDates(DAYS);
+
+// âââ STATE âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+let S={lb:30,th:2,mc:0.60,tab:âscannerâ,sel:null,sec:âALLâ,cross:false,sort:âzscoreâ,dv:âzscoreâ,alerts:[],unread:0,aOn:true,af:âALLâ,chart:null,pairs:[],stats:{},sectors:[]};
+
+function zCol(z){const a=Math.abs(z);return a>=2.5?â#ef4444â:a>=2?â#f59e0bâ:a>=1.5?â#a3a3a3â:â#22c55eâ}
+function dot(z){if(z==null)returnââ;const c=zCol(z),a=Math.abs(z);return`<span style="width:7px;height:7px;border-radius:50%;background:${c};display:inline-block;box-shadow:${a>=2?`0 0 6px ${c}`:'none'};${a>=2.5?'animation:pulse 1.5s infinite':''}"></span>`}
+function badge(z){if(z==null)returnâââ;const a=Math.abs(z);let c,l;if(a>=2.5){c=â#ef4444â;l=âEXTREMEâ}else if(a>=2){c=â#f59e0bâ;l=âSTRONGâ}else if(a>=1.5){c=â#78716câ;l=âMILDâ}else{c=â#22c55eâ;l=âNORMALâ}return`<span style="display:inline-flex;align-items:center;gap:4px;background:${c}15;color:${c};border:1px solid ${c}22;border-radius:3px;padding:1px 7px;font-family:var(--mono);font-size:9px;font-weight:600">${dot(z)} ${l}</span>`}
+function now(){return new Date().toLocaleTimeString(âen-INâ,{hour:â2-digitâ,minute:â2-digitâ,second:â2-digitâ,hour12:false})}
+
+// âââ COMPUTE âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+function compute(){
+let p=discover(S.lb,S.mc);
+if(!S.cross)p=p.filter(x=>!x.cross);
+if(S.sec!==âALLâ)p=p.filter(x=>x.sec===S.sec||x.sA.s===S.sec||x.sB.s===S.sec);
+if(S.sort===âcorrâ)p.sort((a,b)=>Math.abs(b.corr)-Math.abs(a.corr));
+else if(S.sort===âhlâ)p.sort((a,b)=>(a.hl||999)-(b.hl||999));
+else p.sort((a,b)=>Math.abs(b.z)-Math.abs(a.z));
+const ss=new Set();p.forEach(x=>{ss.add(x.sA.s);ss.add(x.sB.s)});
+S.pairs=p;
+S.stats={total:p.length,extreme:p.filter(x=>Math.abs(x.z)>=2.5).length,strong:p.filter(x=>{const a=Math.abs(x.z);return a>=2&&a<2.5}).length,em:p.filter(x=>x.em).length};
+S.sectors=[âALLâ,â¦Array.from(ss).sort()];
+if(!S.sel&&p.length)S.sel=p[0];
+}
+
+// âââ RENDER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+function R(){
+compute();
+const p=S.pairs,st=S.stats;
+let h=ââ;
+
+// Toast container
+h+=`<div id="TB" style="position:fixed;top:env(safe-area-inset-top,8px);left:8px;right:8px;z-index:1000;pointer-events:none"><div style="pointer-events:auto" id="TI"></div></div>`;
+
+// Header
+h+=`<div style="padding:max(env(safe-area-inset-top),14px) 16px 0;animation:slideUp 0.3s"> <div style="display:flex;justify-content:space-between;align-items:center"> <div><h1 style="font-family:var(--serif);font-size:22px;font-weight:400;color:var(--tb)">Pairs Monitor</h1> <div style="font-family:var(--mono);font-size:9.5px;color:var(--td)">NSE F&O Â· ${NSE.length} stocks Â· ${p.length} pairs found</div></div> <div style="display:flex;align-items:center;gap:10px"> <div class="tap" onclick="S.tab='alerts';S.unread=0;R();vib()" style="position:relative;padding:4px"> <span style="font-size:20px;display:inline-block;${S.unread?'animation:bellRing 0.6s':''}">ð</span> ${S.unread?`<span style="position:absolute;top:0;right:0;background:#ef4444;color:#fff;font-size:8px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);border:2px solid var(--bg)">${S.unread>9?â9+â:S.unread}</span>`:''} </div> <div style="text-align:right"><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent)">${st.total}</div><div style="font-family:var(--mono);font-size:8px;color:var(--td)">PAIRS</div></div> </div> </div> <div style="display:flex;gap:6px;margin-top:10px"> ${[{l:"EXTREME",v:st.extreme,c:"#ef4444"},{l:"STRONG",v:st.strong,c:"#f59e0b"},{l:"EMERGING",v:st.em,c:"#22d3ee"},{l:"TOTAL",v:st.total,c:"#22c55e"}].map(s=>`<div style="flex:1;background:${s.c}08;border:1px solid ${s.c}18;border-radius:6px;padding:7px 4px;text-align:center"><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:${s.c}">${s.v}</div><div style="font-family:var(--mono);font-size:7px;color:var(--td);letter-spacing:0.5px;margin-top:1px">${s.l}</div></div>`).join(ââ)}
+</div>
+
+  </div>`;
+
+// Tabs
+h+=`<div style="display:flex;margin:10px 16px 0;border-bottom:1px solid rgba(217,119,6,0.06)"> ${[{k:"scanner",l:"SCANNER"},{k:"detail",l:"DETAIL"},{k:"alerts",l:"ALERTS"}].map(t=>`<div class="tap" onclick="S.tab='${t.k}';${t.k==='alerts'?'S.unread=0;':''}R();vib()" style="flex:1;text-align:center;padding:9px 0;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:0.5px;color:${S.tab===t.k?'var(--accent)':'var(--td)'};border-bottom:2px solid ${S.tab===t.k?'var(--accent)':'transparent'};position:relative">${t.l}${t.k===âalertsâ&&S.unread?â<span style="position:absolute;top:4px;right:20%;width:6px;height:6px;border-radius:50%;background:#ef4444"></span>â:ââ}</div>`).join(ââ)}
+
+  </div>`;
+
+// âââ SCANNER âââââââââââââââââââââââââ
+if(S.tab===âscannerâ){
+h+=`<div style="padding:10px 16px 0">`;
+// Sectors
+h+=`<div style="display:flex;gap:5px;overflow-x:auto;padding-bottom:8px">${S.sectors.map(s=>`<div class="tap chip ${S.sec===s?'on':''}" onclick="S.sec='${s}';R();vib()">${s}${s!==âALLâ&&SC[s]?`<span style="font-size:8px;margin-left:3px;color:${SC[s]}">â</span>`:ââ}</div>`).join('')}</div>`;
+// Sliders
+h+=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"> <div><div style="font-family:var(--mono);font-size:8px;color:var(--td);letter-spacing:0.8px">MIN Ï: ${S.mc.toFixed(2)}</div><input type="range" min="0.4" max="0.95" step="0.05" value="${S.mc}" oninput="S.mc=+this.value;R()"></div> <div><div style="font-family:var(--mono);font-size:8px;color:var(--td);letter-spacing:0.8px">LOOKBACK: ${S.lb}d</div><input type="range" min="10" max="90" value="${S.lb}" oninput="S.lb=+this.value;R()"></div> <div><div style="font-family:var(--mono);font-size:8px;color:var(--td);letter-spacing:0.8px">THRESH: Â±${S.th}Ï</div><input type="range" min="1" max="3.5" step="0.25" value="${S.th}" oninput="S.th=+this.value;R()"></div> </div>`;
+// Sort + toggles
+h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"> <div style="display:flex;gap:4px">${[{k:"zscore",l:"|Z|"},{k:"corr",l:"Ï"},{k:"hl",l:"tÂ½"}].map(s=>`<div class="tap" style="padding:3px 8px;border-radius:3px;background:${S.sort===s.k?'var(--ad)':'transparent'};border:1px solid ${S.sort===s.k?'var(--al)':'var(--b1)'};font-family:var(--mono);font-size:9px;font-weight:600;color:${S.sort===s.k?'var(--accent)':'var(--td)'}" onclick="S.sort='${s.k}';R();vib()">${s.l}</div>`).join('')}</div> <div style="display:flex;gap:10px;align-items:center"> <label style="display:flex;align-items:center;gap:5px"><input type="checkbox" ${S.cross?'checked':''} onchange="S.cross=this.checked;R()" style="accent-color:var(--accent);width:14px;height:14px"><span style="font-family:var(--mono);font-size:9px;color:var(--td)">X-SEC</span></label> <label style="display:flex;align-items:center;gap:5px"><input type="checkbox" ${S.aOn?'checked':''} onchange="S.aOn=this.checked;R()" style="accent-color:#22c55e;width:14px;height:14px"><span style="font-family:var(--mono);font-size:9px;color:${S.aOn?'#22c55e':'var(--td)'}">ð</span></label> </div> </div></div>`;
+
+```
+// List
+h+=`<div style="margin-top:6px;max-height:calc(100dvh - 350px);overflow-y:auto;padding:0 8px">`;
+if(!p.length)h+=`<div style="text-align:center;padding:40px;color:#3f3f46;font-family:var(--mono);font-size:11px">No pairs found. Lower MIN Ï to discover more.</div>`;
+p.forEach((pair,i)=>{
+  const az=Math.abs(pair.z),hot=az>=S.th;
+  h+=`<div class="row-tap" onclick="S.sel=S.pairs[${i}];S.tab='detail';S.dv='zscore';R();vib()" style="padding:10px;margin-bottom:1px;background:${hot?'rgba(217,119,6,0.03)':'transparent'};border-left:3px solid ${hot?(az>=2.5?'#ef4444':'#f59e0b'):'transparent'};border-radius:4px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px">
+          ${dot(pair.z)}<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${hot?'var(--tb)':'#a8a29e'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pair.name}</span>
+          ${pair.em?'<span style="font-family:var(--mono);font-size:7px;color:#22d3ee;background:rgba(34,211,238,0.1);padding:1px 5px;border-radius:2px;font-weight:600">NEW</span>':''}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:3px">
+          <span style="font-family:var(--mono);font-size:9px;color:${SC[pair.sA.s]||'var(--td)'}">${pair.sec}</span>
+          ${pair.hl?`<span style="font-family:var(--mono);font-size:9px;color:${pair.hl<15?'#22c55e':'var(--td)'}">tÂ½=${pair.hl.toFixed(0)}d</span>`:''}
+          <span style="font-family:var(--mono);font-size:9px;color:${pair.z>0?'#f59e0b88':'#22d3ee88'}">${pair.z>0?'A RICH':'B RICH'}</span>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:8px">
+        <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:${zCol(pair.z)}">${pair.z>0?'+':''}${pair.z.toFixed(2)}</div>
+        <span style="font-family:var(--mono);font-size:10px;font-weight:600;color:${pair.corr>=0.8?'#22c55e':pair.corr>=0.6?'#a3a3a3':'#ef4444'};background:${(pair.corr>=0.8?'#22c55e':'#a3a3a3')}12;padding:1px 6px;border-radius:3px">Ï ${pair.corr.toFixed(2)}</span>
+      </div>
+    </div>
+  </div>`;
+});
+h+=`</div>`;
+```
+
+}
+
+// âââ ALERTS ââââââââââââââââââââââââââ
+if(S.tab===âalertsâ){
+const fa=S.af===âALLâ?S.alerts:S.alerts.filter(a=>a.tp===S.af);
+h+=`<div style="padding:10px 12px;animation:fadeIn 0.2s">`;
+h+=`<div style="display:flex;gap:4px;overflow-x:auto;margin-bottom:8px">${["ALL","EXTREME","BREACH","NEW","FAST","REVERT"].map(f=>`<div class="tap chip ${S.af===f?'on':''}" onclick="S.af='${f}';R();vib()">${f}</div>`).join('')}<div class="tap chip" onclick="S.alerts=[];R()">CLEAR</div></div>`;
+h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:6px;margin-bottom:8px;background:${S.aOn?'rgba(34,197,94,0.04)':'var(--s1)'};border:1px solid ${S.aOn?'rgba(34,197,94,0.12)':'var(--s2)'}"> <div><div style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:${S.aOn?'#22c55e':'var(--td)'}">${S.aOn?'â LIVE':'â PAUSED'}</div><div style="font-family:var(--mono);font-size:9px;color:var(--td)">Scanning ${p.length} pairs Â· 7s</div></div> <div class="tap" onclick="S.aOn=!S.aOn;R();vib()" style="padding:6px 12px;border-radius:4px;background:${S.aOn?'rgba(239,68,68,0.08)':'rgba(34,197,94,0.08)'};border:1px solid ${S.aOn?'rgba(239,68,68,0.2)':'rgba(34,197,94,0.2)'};font-family:var(--mono);font-size:9.5px;font-weight:600;color:${S.aOn?'#ef4444':'#22c55e'}">${S.aOn?'PAUSE':'RESUME'}</div> </div>`;
+h+=`<div style="max-height:calc(100dvh - 310px);overflow-y:auto">`;
+if(!fa.length)h+=`<div style="text-align:center;padding:50px;color:#3f3f46;font-family:var(--mono);font-size:11px">${S.aOn?'Listening...':'Paused.'}</div>`;
+fa.forEach(a=>{
+h+=`<div class="row-tap" onclick="if(S.pairs[${a.pi}]){S.sel=S.pairs[${a.pi}];S.tab='detail';S.dv='zscore';R();vib()}" style="padding:10px;margin-bottom:2px;border-radius:6px;background:var(--s1);border-left:3px solid ${a.c}"> <div style="display:flex;gap:8px"><span style="font-size:14px">${a.ic}</span><div style="flex:1"> <div style="display:flex;justify-content:space-between"><span style="font-family:var(--mono);font-size:8.5px;font-weight:700;color:${a.c}">${a.tl}</span><span style="font-family:var(--mono);font-size:8px;color:#3f3f46">${a.tm}</span></div> <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--t);margin-top:1px">${a.pr}</div> <div style="font-family:var(--mono);font-size:9.5px;color:var(--td);margin-top:1px">${a.bd}</div> </div></div></div>`;
+});
+h+=`</div></div>`;
+}
+
+// âââ DETAIL ââââââââââââââââââââââââââ
+if(S.tab===âdetailâ&&S.sel){
+const s=S.sel;
+h+=`<div style="padding:10px 12px 20px;animation:fadeIn 0.2s">`;
+// Header
+h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"> <div class="tap" onclick="S.tab='scanner';R();vib()" style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--s1);border:1px solid var(--s2);font-size:16px;color:var(--tm)">â</div> <div style="flex:1"><div style="font-family:var(--mono);font-size:14px;font-weight:700;color:var(--tb)">${s.name}</div><div style="font-family:var(--mono);font-size:9px;color:${SC[s.sA.s]||'var(--td)'}">${s.sec}</div></div> ${badge(s.z)} </div>`;
+// Stats
+h+=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">${[{l:"Z-SCORE",v:(s.z>0?"+":"")+s.z.toFixed(3),c:Math.abs(s.z)>=2?'var(--accent)':'var(--t)'},{l:"CORR",v:s.corr.toFixed(3),c:s.corr<0.6?'#ef4444':'#22c55e'},{l:"HALF-LIFE",v:s.hl?s.hl.toFixed(1)+'d':'N/A',c:s.hl&&s.hl<15?'#22c55e':'var(--tm)'}].map(x=>`<div class="card" style="text-align:center"><div style="font-family:var(--mono);font-size:7.5px;color:var(--td);letter-spacing:0.8px">${x.l}</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${x.c};margin-top:2px">${x.v}</div></div>`).join('')}</div>`;
+// Direction
+h+=`<div style="display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:10px;padding:8px;border-radius:6px;background:${Math.abs(s.z)>=S.th?'rgba(217,119,6,0.05)':'var(--s1)'};border:1px solid ${Math.abs(s.z)>=S.th?'rgba(217,119,6,0.12)':'var(--s2)'}"> <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:${s.z>0?'#22d3ee':'var(--tm)'}">${s.sA.t}</span> <span style="font-family:var(--mono);font-size:9px;color:var(--td)">${s.z>0?'SHORT':'LONG'}</span> <span style="font-family:var(--mono);font-size:14px;color:var(--accent)">â·</span> <span style="font-family:var(--mono);font-size:9px;color:var(--td)">${s.z>0?'LONG':'SHORT'}</span> <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:${s.z<=0?'#f472b6':'var(--tm)'}">${s.sB.t}</span> </div>`;
+// Chart toggle
+h+=`<div style="display:flex;gap:4px;margin-bottom:8px">${[{k:"zscore",l:"Z-Score"},{k:"prices",l:"Prices"},{k:"corr",l:"Corr"}].map(v=>`<div class="tap" onclick="S.dv='${v.k}';R();vib()" style="flex:1;text-align:center;padding:7px;border-radius:6px;background:${S.dv===v.k?'var(--ad)':'var(--s1)'};border:1px solid ${S.dv===v.k?'var(--al)':'var(--s2)'};font-family:var(--mono);font-size:10px;font-weight:600;color:${S.dv===v.k?'var(--accent)':'var(--td)'}">${v.l}</div>`).join('')}</div>`;
+// Chart
+h+=`<div style="background:var(--s1);border:1px solid var(--s2);border-radius:10px;padding:12px 8px 4px"><div style="position:relative;width:100%;height:220px"><canvas id="C"></canvas></div></div>`;
+h+=`</div>`;
+}
+
+document.getElementById(âappâ).innerHTML=h;
+if(S.tab===âdetailâ&&S.sel)requestAnimationFrame(drawChart);
+}
+
+// âââ CHART âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+function drawChart(){
+const c=document.getElementById(âCâ);if(!c||!S.sel)return;
+if(S.chart)S.chart.destroy();
+const s=S.sel,ctx=c.getContext(â2dâ);
+let cfg;
+if(S.dv===âzscoreâ){
+cfg={type:âlineâ,data:{labels:DATES,datasets:[{label:âZ-Scoreâ,data:s.zs.map(v=>v===null?NaN:v),borderColor:â#d97706â,backgroundColor:ârgba(217,119,6,0.08)â,fill:true,borderWidth:1.5,pointRadius:0,tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{color:â#3f3f46â,font:{size:8},maxTicksLimit:8},grid:{color:ârgba(217,119,6,0.03)â}},y:{min:-4,max:4,ticks:{color:â#3f3f46â,font:{size:8}},grid:{color:ârgba(217,119,6,0.03)â}}},plugins:{legend:{display:false},annotation:{annotations:{u:{type:âlineâ,yMin:S.th,yMax:S.th,borderColor:ârgba(217,119,6,0.4)â,borderDash:[4,3]},l:{type:âlineâ,yMin:-S.th,yMax:-S.th,borderColor:ârgba(217,119,6,0.4)â,borderDash:[4,3]},z:{type:âlineâ,yMin:0,yMax:0,borderColor:ârgba(255,255,255,0.05)â}}},tooltip:{backgroundColor:ârgba(8,10,16,0.96)â,titleFont:{family:âIBM Plex Monoâ,size:9},bodyFont:{family:âIBM Plex Monoâ,size:9}}}}};
+}else if(S.dv===âpricesâ){
+cfg={type:âlineâ,data:{labels:DATES,datasets:[{label:s.sA.t,data:s.pA.map(v=>+(v/s.pA[0]*100).toFixed(2)),borderColor:â#22d3eeâ,borderWidth:1.3,pointRadius:0,tension:0.3},{label:s.sB.t,data:s.pB.map(v=>+(v/s.pB[0]*100).toFixed(2)),borderColor:â#f472b6â,borderWidth:1.3,pointRadius:0,tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{color:â#3f3f46â,font:{size:8},maxTicksLimit:8},grid:{color:ârgba(217,119,6,0.03)â}},y:{ticks:{color:â#3f3f46â,font:{size:8}},grid:{color:ârgba(217,119,6,0.03)â}}},plugins:{legend:{display:true,position:âtopâ,labels:{color:â#78716câ,font:{family:âIBM Plex Monoâ,size:9},boxWidth:10}},tooltip:{backgroundColor:ârgba(8,10,16,0.96)â,titleFont:{family:âIBM Plex Monoâ,size:9},bodyFont:{family:âIBM Plex Monoâ,size:9}}}}};
+}else{
+cfg={type:âlineâ,data:{labels:DATES,datasets:[{label:âÏâ,data:s.rcs.map(v=>v===null?NaN:v),borderColor:â#22c55eâ,backgroundColor:ârgba(34,197,94,0.08)â,fill:true,borderWidth:1.3,pointRadius:0,tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{color:â#3f3f46â,font:{size:8},maxTicksLimit:8},grid:{color:ârgba(217,119,6,0.03)â}},y:{min:0,max:1,ticks:{color:â#3f3f46â,font:{size:8}},grid:{color:ârgba(217,119,6,0.03)â}}},plugins:{legend:{display:false},annotation:{annotations:{mc:{type:âlineâ,yMin:S.mc,yMax:S.mc,borderColor:ârgba(217,119,6,0.25)â,borderDash:[4,3]}}},tooltip:{backgroundColor:ârgba(8,10,16,0.96)â,titleFont:{family:âIBM Plex Monoâ,size:9},bodyFont:{family:âIBM Plex Monoâ,size:9}}}}};
+}
+S.chart=new Chart(ctx,cfg);
+}
+
+// âââ ALERTS ENGINE âââââââââââââââââââââââââââââââââââââââââââââââââââ
+function fireAlert(a){
+S.alerts=[a,â¦S.alerts].slice(0,80);
+S.unread++;
+// Toast
+const box=document.getElementById(âTIâ);
+if(box){
+const el=document.createElement(âdivâ);
+el.className=âtoastâ;el.style.borderLeft=`3px solid ${a.c}`;
+el.innerHTML=`<div style="display:flex;gap:8px"><span style="font-size:16px">${a.ic}</span><div style="flex:1"><div style="display:flex;justify-content:space-between"><span style="font-family:var(--mono);font-size:9px;font-weight:700;color:${a.c}">${a.tl}</span><span style="font-family:var(--mono);font-size:8px;color:#57534e">${a.tm}</span></div><div style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:#e7e5e4;margin-top:2px">${a.pr}</div><div style="font-family:var(--mono);font-size:9.5px;color:#78716c;margin-top:1px">${a.bd}</div></div></div>`;
+el.onclick=()=>{if(S.pairs[a.pi]){S.sel=S.pairs[a.pi];S.tab=âdetailâ;S.dv=âzscoreâ;R();vib()}};
+box.prepend(el);
+vib(a.pri>=3?[50,30,50]:15);
+setTimeout(()=>{el.classList.add(âexitâ);setTimeout(()=>el.remove(),400)},5000);
+while(box.children.length>3)box.lastChild.remove();
+}
+if(a.pri>=2)notify(`${a.tl}: ${a.pr}`,a.bd);
+// Update header badge without full re-render during scanner scroll
+const bellBadge=document.querySelector(â[onclick*=âalertsâ] span:last-childâ);
+if(S.tab!==âalertsâ)R();
+}
+
+setInterval(()=>{
+if(!S.aOn||!S.pairs.length)return;
+const i=Math.floor(Math.random()*S.pairs.length),p=S.pairs[i];if(!p)return;
+const j=(Math.random()-0.5)*0.4,fz=p.z+j,az=Math.abs(fz),t=now();
+let a=null;
+if(az>=2.5)a={id:Date.now(),tp:âEXTREMEâ,ic:âð´â,c:â#dc2626â,pr:p.name,tl:`EXTREME ${fz>0?'A RICH':'B RICH'}`,bd:`Z=${fz>0?'+':''}${fz.toFixed(2)}Ï Â· Ï=${p.corr.toFixed(2)}`,tm:t,pri:3,pi:i};
+else if(az>=S.th&&Math.random()>0.5)a={id:Date.now(),tp:âBREACHâ,ic:ââ¡â,c:â#ef4444â,pr:p.name,tl:âTHRESHOLD BREACHâ,bd:`Zâ${fz>0?'+':''}${fz.toFixed(2)}Ï`,tm:t,pri:2,pi:i};
+else if(p.em&&Math.random()>0.7)a={id:Date.now(),tp:âNEWâ,ic:ââ¦â,c:â#22d3eeâ,pr:p.name,tl:âNEW PAIRâ,bd:`Ï emerged at ${p.corr.toFixed(2)}`,tm:t,pri:2,pi:i};
+else if(p.hl&&p.hl<8&&az>=1.5&&Math.random()>0.6)a={id:Date.now(),tp:âFASTâ,ic:ââ±â,c:â#a78bfaâ,pr:p.name,tl:âFAST REVERSIONâ,bd:`tÂ½=${p.hl.toFixed(1)}d Â· Z=${fz.toFixed(2)}Ï`,tm:t,pri:2,pi:i};
+else if(az<0.5&&Math.random()>0.85)a={id:Date.now(),tp:âREVERTâ,ic:ââ©â,c:â#22c55eâ,pr:p.name,tl:âMEAN REVERTEDâ,bd:`Z=${fz.toFixed(2)}Ï`,tm:t,pri:1,pi:i};
+if(a)fireAlert(a);
+},7000);
+
+// âââ INIT ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+R();
+reqNotif();
+</script>
+
+</body>
+</html>
